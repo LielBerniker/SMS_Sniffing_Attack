@@ -4,7 +4,7 @@
 DEDSEC TOOL
 """
 
-import pyshark
+import pyshark # depend on the Pcap library that captures network packages
 from optparse import OptionParser
 import os, sys
 import datetime
@@ -23,6 +23,7 @@ class ImsiEvil:
 
     def sql_db(self):
         import sqlite3
+        # crate a data base with SQlite
         self.sql_conn = sqlite3.connect(options.save)
         self.sql_conn.execute('CREATE TABLE IF NOT EXISTS imsi_data(id INTEGER PRIMARY KEY, imsi TEXT, tmsi TEXT, mcc INTEGER, mnc INTEGER, lac INTEGER, ci INTEGER, date_time timestamp)')
 
@@ -45,18 +46,19 @@ class ImsiEvil:
             self.sql_db()
             self.get_data()
             data = self.data
+
             if data:
                 data = self.data[0]
                 if(self.imsi != data[1]):
                     self.save_data()
                 else:
-                    if (self.tmsi != data[2]) & (self.tmsi != ''): #Check if tmsi is different than update in file db
+                    if (self.tmsi != data[2]) & (self.tmsi != ''): # Check if tmsi is different than update in file db
                         self.update_data(data[0],self.tmsi)
             else:
                 self.save_data()
         
         if self.imsi in self.live_db:
-            if self.live_db[self.imsi]['tmsi'] != self.tmsi: #Check if tmsi is different than update in live db
+            if self.live_db[self.imsi]['tmsi'] != self.tmsi: # Check if tmsi is different than update in live db
                 self.live_db[self.imsi]['tmsi'] = self.tmsi
         else:
             self.id_ += 1
@@ -65,19 +67,23 @@ class ImsiEvil:
 
     def get_imsi(self, capture):
         for packet in capture:
-            layer = packet.highest_layer
+            layer = packet.highest_layer  # application layer
             if layer == "GSM_A.CCCH":
-                if packet[4].layer_name == 'gsm_a.ccch':
+                # packet[4] = Transport layer
+                if packet[4].layer_name == 'gsm_a.ccch': # gsm Common Control Channels - used for conveying information from network to the MS
                     gsm_a_ccch = packet[4]
+                    # Return whether the gsm_a_ccch has an attribute with the given name
                     if hasattr(gsm_a_ccch, "gsm_a_bssmap_cell_ci"):
-                        self.ci = int(gsm_a_ccch.gsm_a_bssmap_cell_ci, 16)
-                        self.lac = int(gsm_a_ccch.gsm_a_lac, 16)
+                        self.ci = int(gsm_a_ccch.gsm_a_bssmap_cell_ci, 16) # cell identity (ci) is a 16 bit identifier in GSM
+                        self.lac = int(gsm_a_ccch.gsm_a_lac, 16) # The Location area code (lac) is a 16-bit number that forms part of the local Area Identifier
+
+                    # The e212.imsi filter will only show packets that contain IMSI numbers
                     elif hasattr(gsm_a_ccch, 'e212.imsi'):
                         self.imsi = gsm_a_ccch.e212_imsi #[-11:-1]
-                        self.mcc = gsm_a_ccch.e212_mcc
-                        self.mnc = gsm_a_ccch.e212_mnc
+                        self.mcc = gsm_a_ccch.e212_mcc # Mobile Country Code (mcc)
+                        self.mnc = gsm_a_ccch.e212_mnc # Mobile Network Code (mnc)
                         if hasattr(gsm_a_ccch,'gsm_a_rr_tmsi_ptmsi'):
-                            self.tmsi = gsm_a_ccch.gsm_a_rr_tmsi_ptmsi
+                            self.tmsi = gsm_a_ccch.gsm_a_rr_tmsi_ptmsi # Temporary Mobile Subscriber Identity (tmsi)
                         elif hasattr(gsm_a_ccch,'gsm_a_tmsi'):
                             self.tmsi = gsm_a_ccch.gsm_a_tmsi
                         else:
@@ -86,6 +92,7 @@ class ImsiEvil:
                             self.filter_imsi()
                         elif options.imsi == self.imsi:
                             self.filter_imsi()
+                # packet[6] = Presentation layer
                 elif packet[6].layer_name == 'gsm_a.ccch':
                     gsm_a_ccch = packet[6]
                     if hasattr(gsm_a_ccch, "gsm_a_bssmap_cell_ci"):
@@ -122,6 +129,7 @@ if __name__ == "__main__":
 try:
     ImsiEvil = ImsiEvil()
     ImsiEvil.header()
+    # The result of pyshark.LiveCapture is a package list (Python iterator object) that allows us to go through the captured data package by package
     capture = pyshark.LiveCapture(interface=options.iface, bpf_filter="port {} and not icmp and udp".format(options.port))
     ImsiEvil.get_imsi(capture)
 except:
